@@ -1,7 +1,6 @@
 
 # %%
 import pandas as pd
-import warnings
 import matplotlib.pyplot as plt
 import polars
 import openpyxl
@@ -9,7 +8,7 @@ from ema_workbench.analysis import prim
 
 # %% Load data
 global_data = polars.read_excel(
-    '/Users/kenzie/Downloads/_Scenario_Compass_Initiative_Data/SCI-2025_v1.0_pathways_ensemble_global.xlsx',
+    '_Scenario_Compass_Initiative_Data/SCI-2025_v1.0_pathways_ensemble_global.xlsx',
     sheet_name='data'
 )
 
@@ -22,11 +21,11 @@ all_year_cols = [c for c in pandas_df.columns if str(c).isdigit()]
 
 # %% --- Configuration ---
 # Select which years to use as predictors
-predictor_years = ['2030', '2050', '2070']
+predictor_years = ['2050']
 # Select which years to use as the outcome (single year)
 outcome_year = '2070'
 # Variable filter for predictors (str.contains match)
-predictor_filter = 'Primary Energy'
+predictor_filter = 'Primary Energy|'
 # Exact variable name for the outcome
 outcome_variable = 'Climate Assessment|Harmonized|Emissions|CO2|Energy and Industrial Processes'
 
@@ -37,7 +36,7 @@ inputs_filtered = pandas_df[
 ]
 
 # Keep only the year columns we want plus the Variable label
-inputs_cols = [c for c in predictor_years if c in pandas_df.columns]
+inputs_cols = [c for c in pandas_df.columns if str(c) in predictor_years]
 inputs_subset = inputs_filtered[['Variable'] + inputs_cols]
 
 # Pivot to wide format: one row per (Model, Scenario), one col per (year, Variable)
@@ -57,7 +56,13 @@ Y_series.name = outcome_variable
 
 # %% --- Align X and Y on common model runs ---
 common_index = X_df.index.intersection(Y_series.index)
-X_df = X_df.loc[common_index].dropna()
+# Align on common runs, remove columns that are all zero, drop rows with NaNs, then align Y
+X_df = X_df.loc[common_index]
+# %%
+# Drop columns where every value is exactly 0
+X_df = X_df.loc[:, ~(X_df == 0).all(axis=0)]
+# Drop columns where every value is NaN
+X_df = X_df.dropna(axis=1, how='all')
 Y_series = Y_series.loc[X_df.index]
 
 print(f"Model runs (rows): {len(X_df)}")
@@ -72,8 +77,11 @@ y = Y_series.values       # 1D numpy array: (n_runs,)
 # %% --- PRIM analysis ---
 # threshold and threshold_type depend on your outcome variable's units/scale
 threshold = y.mean()      # example: split above/below mean
-prim_alg = prim.Prim(X_df, y, threshold=threshold, threshold_type='>=')
+y_prim = (y > threshold).astype(bool)  # binary outcome for PRIM: 1 if above threshold, else 0
+prim_alg = prim.Prim(X_df, y_prim)
 
 box1 = prim_alg.find_box()
 box1.show_tradeoff()
 plt.show()
+
+# %%
