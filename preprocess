@@ -1,0 +1,118 @@
+import pandas as pd
+from openpyxl import load_workbook
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.utils import get_column_letter
+
+# ── Load ──────────────────────────────────────────────────────────────────────
+df = pd.read_excel('SCI-2025_v1_0_pathways_ensemble_global_new.xlsx', sheet_name='data')
+
+# Strip whitespace from column names (common cause of KeyError)
+df.columns = df.columns.str.strip()
+
+print("Columns found:", df.columns.tolist())
+print("Shape:", df.shape)
+
+# ── Config ────────────────────────────────────────────────────────────────────
+target_vars = [
+    'Emissions|CO2',
+    'Final Energy',
+    'Primary Energy',
+    'Population',
+    'Food Availability [per capita]',
+    'Agricultural Demand|Crops',
+    'Price|Carbon',
+    'Capacity|Electricity|Fossil',
+    'Capacity|Electricity|Biomass',
+    'Capacity|Electricity|Non-Biomass Renewables',
+]
+
+# Auto-detect year columns (numeric column names like 2020, 2030, etc.)
+year_cols = [c for c in df.columns if str(c).strip().isdigit()]
+print("Year columns detected:", year_cols)
+
+# Use last year if multiple, or whichever you prefer
+# Change this to e.g. 2050 if you want a specific year
+value_col = year_cols[-1] if year_cols else '2070'
+print("Using year column:", value_col)
+
+# ── Filter & Pivot ────────────────────────────────────────────────────────────
+filtered = df[df['Variable'].isin(target_vars)].copy()
+
+missing = set(target_vars) - set(filtered['Variable'].unique())
+if missing:
+    print("Warning: these variables not found in data:", missing)
+
+pivot = filtered.pivot_table(
+    index=['Model', 'Scenario'],
+    columns='Variable',
+    values=value_col,
+    aggfunc='first'
+).reset_index()
+
+col_order = ['Model', 'Scenario'] + [v for v in target_vars if v in pivot.columns]
+pivot = pivot[col_order]
+units = filtered.groupby('Variable')['Unit'].first().to_dict()
+
+print(f"Output shape: {pivot.shape}")
+
+# ── Write & Format ─────────────────────────────────────────────────────────────
+output_path = 'SCI_2025_reshaped_rows.xlsx'
+pivot.to_excel(output_path, index=False, sheet_name='Data')
+
+wb = load_workbook(output_path)
+ws = wb['Data']
+
+header_fill = PatternFill('solid', start_color='1F4E79', end_color='1F4E79')
+header_font = Font(bold=True, color='FFFFFF', name='Arial', size=10)
+center = Alignment(horizontal='center', vertical='center', wrap_text=True)
+thin = Side(style='thin', color='CCCCCC')
+border = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+for cell in ws[1]:
+    cell.font = header_font
+    cell.fill = header_fill
+    cell.alignment = center
+    cell.border = border
+
+# Insert units row
+ws.insert_rows(2)
+unit_fill = PatternFill('solid', start_color='BDD7EE', end_color='BDD7EE')
+unit_font = Font(italic=True, color='1F4E79', name='Arial', size=9)
+ws['A2'] = 'Units:'
+ws['A2'].font = Font(bold=True, italic=True, name='Arial', size=9, color='1F4E79')
+ws['A2'].fill = unit_fill
+
+for col_idx, col_name in enumerate(pivot.columns, 1):
+    cell = ws.cell(row=2, column=col_idx)
+    if col_name in units:
+        cell.value = units[col_name]
+    cell.font = unit_font
+    cell.fill = unit_fill
+    cell.alignment = center
+    cell.border = border
+
+alt_fill = PatternFill('solid', start_color='EBF3FB', end_color='EBF3FB')
+white_fill = PatternFill('solid', start_color='FFFFFF', end_color='FFFFFF')
+data_font = Font(name='Arial', size=10)
+
+for row_idx, row in enumerate(ws.iter_rows(min_row=3, max_row=ws.max_row), 1):
+    fill = alt_fill if row_idx % 2 == 0 else white_fill
+    for col_idx, cell in enumerate(row, 1):
+        cell.font = data_font
+        cell.fill = fill
+        cell.border = border
+        if col_idx > 2 and cell.value is not None:
+            cell.number_format = '#,##0.00'
+            cell.alignment = Alignment(horizontal='right')
+        else:
+            cell.alignment = Alignment(horizontal='left')
+
+ws.column_dimensions['A'].width = 22
+ws.column_dimensions['B'].width = 14
+for col_idx in range(3, len(pivot.columns) + 1):
+    ws.column_dimensions[get_column_letter(col_idx)].width = 24
+
+ws.freeze_panes = 'C3'
+ws.row_dimensions[1].height = 40
+wb.save(output_path)
+print(f"Done → {output_path}")
