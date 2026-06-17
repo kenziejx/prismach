@@ -92,3 +92,12 @@ box1.inspect(selected_box)
 box1.inspect(selected_box, style="graph")
 plt.show()
 # %%
+from ema_workbench.analysis import cart
+
+cart_alg = cart.CART(X_df, y_prim)
+cart_alg.build_tree()
+
+fig = cart_alg.show_tree()
+fig.set_size_inches((18, 12))
+plt.show()
+# %%
