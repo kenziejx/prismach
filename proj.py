@@ -32,8 +32,7 @@ outcome_variable = 'Climate Assessment|Harmonized|Emissions|CO2|Energy and Indus
 # %% --- Build X (predictors) ---
 # Filter rows whose Variable contains the predictor string
 inputs_filtered = pandas_df[
-    pandas_df['Variable'].str.contains(predictor_filter, case=False, regex=False, na=False)
-]
+    pandas_df['Variable'].str.startswith(predictor_filter)]
 
 # Keep only the year columns we want plus the Variable label
 inputs_cols = [c for c in pandas_df.columns if str(c) in predictor_years]
@@ -63,6 +62,7 @@ X_df = X_df.loc[common_index]
 X_df = X_df.loc[:, ~(X_df == 0).all(axis=0)]
 # Drop columns where every value is NaN
 X_df = X_df.dropna(axis=1, how='all')
+X_df.fillna(0, inplace=True)
 Y_series = Y_series.loc[X_df.index]
 
 print(f"Model runs (rows): {len(X_df)}")
@@ -71,17 +71,24 @@ print(f"X shape: {X_df.shape}, Y shape: {Y_series.shape}")
 print(f"\nX columns (first 5): {list(X_df.columns[:5])}")
 
 # %% --- Convert to arrays for EMA workbench ---
-X = X_df.values          # 2D numpy array: (n_runs, n_features)
+import numpy as np
 y = Y_series.values       # 1D numpy array: (n_runs,)
 
 # %% --- PRIM analysis ---
-# threshold and threshold_type depend on your outcome variable's units/scale
-threshold = y.mean()      # example: split above/below mean
-y_prim = (y > threshold).astype(bool)  # binary outcome for PRIM: 1 if above threshold, else 0
-prim_alg = prim.Prim(X_df, y_prim)
-
+threshold = y.mean()
+y_prim = (y > threshold).astype(np.bool_)  # boolean array: True if above mean
+prim_alg = prim.Prim(X_df, y_prim, threshold=0.5)
+# %%
 box1 = prim_alg.find_box()
 box1.show_tradeoff()
 plt.show()
 
+# %%
+box1.inspect_tradeoff()
+# %%
+selected_box=11
+#Show box
+box1.inspect(selected_box)
+box1.inspect(selected_box, style="graph")
+plt.show()
 # %%
